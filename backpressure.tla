@@ -231,10 +231,6 @@ RunningNotBlocked ==
 UnscheduledByMuteOrAcquire ==
   \A c \in Cowns: ~((priority[c] = -1) \/ Acquired(c)) <=> scheduled[c]
 
-\* A cown in the queue of a greater cown is unscheduled.
-BehaviourAcquisition ==
-  \A c \in Cowns: \A k \in UNION Range(queue[c]): (k < c) => ~scheduled[k]
-
 \* A cown can only be acquired by at most one cown.
 AcquiredOnce ==
   \A <<a, b, c>> \in Cowns \X Cowns \X Cowns:
