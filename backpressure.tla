@@ -217,6 +217,9 @@ CownNotMutedBySelf == \A c \in Cowns: c \notin mute[c]
 \* A low-priority cown is muted.
 LowPriorityMuted == \A c \in Cowns: (priority[c] = -1) => Muted(c)
 
+\* A low-priority cown is not acquired.
+LowPriorityNotAcquired == \A c \in LowPriority(Cowns): ~Acquired(c)
+
 \* There cannot be message that has acquired a high-priority cown and has
 \* acquired, or is in the queue of, a low-priority cown.
 Nonblocking ==
