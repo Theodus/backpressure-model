@@ -56,10 +56,7 @@ Init ==
   /\ mute = [c \in Cowns |-> {}]
 
 Terminating ==
-  \* TODO: only require empty queue
-  \* /\ \A c \in Cowns: EmptyQueue(c)
-  \* /\ Assert(\A c \in Cowns: Sleeping(c), "Termination with unscheduled cowns")
-  /\ \A c \in Cowns: Sleeping(c)
+  /\ \A c \in Cowns: EmptyQueue(c)
   /\ UNCHANGED vars
 
 Acquire(cown) ==
@@ -98,8 +95,6 @@ Send(cown) ==
     /\ Cardinality(receivers) > 0
     /\ queue' =
       (Min(receivers) :> Append(queue[Min(receivers)], receivers)) @@ queue
-    \* TODO:
-    \* /\ IF \E c \in receivers: priority[c] = 1 THEN
     /\ IF priority[Min(receivers)] = 1 THEN
       LET prioritizing == Prioritizing({Min(receivers)}) IN
       LET unmuting == LowPriority(prioritizing) IN
@@ -155,11 +150,11 @@ Run(cown) ==
   \/ Send(cown)
   \/ Complete(cown)
 
-Next == Terminating \/ \E c \in Cowns: Run(c) \/ Unmute
+Next == \E c \in Cowns: Run(c) \/ Unmute
 
 Spec ==
   /\ Init
-  /\ [][Next]_vars
+  /\ [][Next \/ Terminating]_vars
   /\ \A c \in Cowns: WF_vars(Run(c))
   /\ WF_vars(Unmute)
 
