@@ -265,4 +265,15 @@ MuteSetsDisjoint == \A <<a, b>> \in Cowns \X Cowns:
 \* The transitive closure of the relation MutedBy has no cycles.
 AcyclicTCMute == ~CylcicTransitiveClosure(MutedBy)
 
+WaitsFor(a, b) ==
+  \E c \in {k \in CurrentMessage(a): k > a}:
+    LET next == Min({k \in CurrentMessage(a): k > a}) IN
+    (c = next) /\ AcquiredBy(next, b)
+
+Obstacle(a, b) ==
+  \/ (priority[a] < 1) /\ WaitsFor(a, b)
+  \/ MutedBy(a, b) /\ ValidMutor(b)
+
+AcyclicTCObstacle == ~CylcicTransitiveClosure(Obstacle)
+
 ====
