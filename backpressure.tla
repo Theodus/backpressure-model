@@ -239,10 +239,13 @@ AcquiredOnce ==
 \* All messages in a cown's queue must contain the cown.
 SelfInQueueMessages == \A c \in Cowns: \A m \in Range(queue[c]): c \in m
 
-\* A high-priority cown is in a queue of a high-priority cown.
-HighPriorityInUnblockedQueue ==
-  \A c \in HighPriority(Cowns):
-    \E k \in HighPriority(Cowns): c \in UNION Range(queue[k])
+\* A cown is acquired by one of its blockers.
+Blocker == \A c \in Cowns:
+  blocker[c] \in Cowns => \E k \in Blockers(c): AcquiredBy(c, k)
+
+\* All blockers of a high-priority cown are high-priority.
+HighPriorityBlockersAreHighPriority ==
+  \A c \in HighPriority(Cowns): \A k \in Blockers(c): priority[k] = 1
 
 \* Warning: not enforced by implementation.
 SleepingIsNormal == \A c \in Cowns: Sleeping(c) => (priority[c] = 0)
