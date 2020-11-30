@@ -82,7 +82,7 @@ Acquire(cown) ==
     IN
     /\ queue' = Enqueue(next, msg) @@ Dequeue(cown) @@ queue
     /\ blocker' = (cown :> next) @@ blocker
-    /\ IF Overloaded(cown) THEN
+    /\ IF (Overloaded(cown) \/ Overloaded(next)) /\ muted[next] THEN
       /\ scheduled' = (next :> TRUE) @@ (cown :> FALSE) @@ scheduled
       /\ muted' = (next :> FALSE) @@ muted
       ELSE
@@ -117,7 +117,7 @@ Send(cown) ==
   /\ running[cown]
   /\ fuel > 0
   \* -----
-  /\ UNCHANGED <<scheduled, running, muted, blocker>>
+  /\ UNCHANGED <<running, blocker>>
   /\ fuel' = fuel - 1
   \*# Select set of receivers
   /\ \E receivers \in Subsets(Cowns, 1, MaxMessageSize):
@@ -128,13 +128,20 @@ Send(cown) ==
     IN
     \*# Place message for receivers in the first receiver's queue.
     /\ queue' = Enqueue(next, receivers) @@ queue
-    \*# Set mutor if any receiver is overloaded and there are no receivers in the set of senders.
-    /\ IF
-      /\ mutors /= {}
-      /\ mutor[cown] = Null
-      /\ (senders \intersect receivers) = {}
-      THEN mutor' = (cown :> Min(mutors)) @@ mutor
-      ELSE UNCHANGED <<mutor>>
+    /\ IF (Overloaded(cown) \/ Overloaded(next)) /\ muted[next] THEN
+      /\ UNCHANGED <<mutor>>
+      \*# Unmute next.
+      /\ scheduled' = (next :> TRUE) @@ scheduled
+      /\ muted' = (next :> FALSE) @@ muted
+      ELSE
+      /\ UNCHANGED <<scheduled, muted>>
+      \*# Set mutor if any receiver is overloaded and there are no receivers in the set of senders.
+      /\ IF
+        /\ mutors /= {}
+        /\ mutor[cown] = Null
+        /\ (senders \intersect receivers) = {}
+        THEN mutor' = (cown :> Min(mutors)) @@ mutor
+        ELSE UNCHANGED <<mutor>>
 
 PostRun(cown) ==
   /\ running[cown]
@@ -191,7 +198,11 @@ LoneToken == \A c \in Cowns: Len(SelectSeq(queue[c], LAMBDA m: m = {})) <= 1
 RunningImplication == \A c \in Cowns: running[c] =>
   /\ scheduled[c]
   /\ c = Max(Head(queue[c]))
-  /\ \A k \in Head(queue[c]): (k < c) => ~scheduled[k]
+  /\ \A k \in Head(queue[c]): (k < c) => AcquiredBy(k, c)
+
+\*# An acquired cown is not scheduled.
+AcquiredImplication == \A c \in Cowns: Acquired(c) =>
+  /\ ~scheduled[c]
 
 \*# A muted cown is not scheduled or running.
 MutedImplication == \A c \in Cowns: muted[c] <=>
