@@ -3,8 +3,8 @@
 EXTENDS FiniteSets, Integers, Sequences, TLC
 
 Null == 0
-Cowns == 1..3 \*# TODO: 4
-MaxMessageCount == 3 \*# TODO: 4
+Cowns == 1..4
+MaxMessageCount == 4
 MaxMessageSize == 3
 OverloadThreshold == 2
 PriorityLevels == {-1, 0, 1}
@@ -37,8 +37,7 @@ Blockers(c) ==
   IF blocker[c] = Null THEN {}
   ELSE {blocker[c]} \union Blockers(blocker[c])
 
-\* TODO: apply to all blockers
-Unblock(c) == c :> (Muted(c) \/ scheduled[c])
+Unblock(c) == [k \in {c} \union Blockers(c) |-> Muted(k) \/ scheduled[k]]
 
 Running(c) == \E k \in Cowns: running[k] /\ c \in Head(queue[k])
 
@@ -89,9 +88,10 @@ Acquire(cown) ==
     IN
     /\ queue' = Enqueue(next, msg) @@ Dequeue(cown) @@ queue
     /\ blocker' = (cown :> next) @@ blocker
-    \*# Prioritize this cown and next if either are prioritized. Unmute next.
+    \*# Prioritize this cown and next if either are prioritized.
     /\ IF \E c \in {cown, next}: Prioritized(c) THEN
-      /\ priority' = (next :> 1) @@ priority
+      \* Unblock next.
+      /\ priority' = (next :> 1) @@ [c \in Blockers(next) |-> 1] @@ priority
       /\ scheduled' = Unblock(next) @@ (cown :> FALSE) @@ scheduled
       ELSE
       /\ UNCHANGED <<priority>>
@@ -137,15 +137,15 @@ Send(cown) ==
     \*# Place message for receivers in the first receiver's queue.
     /\ queue' = Enqueue(next, receivers) @@ queue
     /\ IF (\E c \in receivers: Prioritized(c)) \/ Overloaded(next) THEN
-      \*# Prioritize next.
-      /\ priority' = (next :> 1) @@ priority
-      \*# Reschdeule next if it was muted.
+      \*# Unblock next.
+      /\ priority' = (next :> 1) @@ [c \in Blockers(next) |-> 1] @@ priority
       /\ scheduled' = Unblock(next) @@ scheduled
       \*# Set mutor if any receiver is overloaded and there are no receivers in the set of senders.
       /\ IF
         /\ mutors /= {}
         /\ mutor[cown] = Null
         /\ (senders \intersect receivers) = {}
+        \*# The priority of senders is checked before muting in PostRun.
         THEN mutor' = (cown :> Min(mutors)) @@ mutor
         ELSE UNCHANGED <<mutor>>
       ELSE
@@ -159,7 +159,10 @@ PostRun(cown) ==
   /\ mutor' = (cown :> Null) @@ mutor
   /\ LET msg == Head(queue[cown]) IN
     \*# Mute if mutor is set and no running cowns are overloaded.
-    /\ IF (mutor[cown] /= Null) /\ (\A c \in msg: ~Overloaded(c)) THEN
+    /\ IF
+      /\ mutor[cown] /= Null
+      /\ \A c \in msg: ~Overloaded(c) /\ ~Prioritized(c)
+      THEN
       /\ priority' = [c \in msg |-> -1] @@ priority
       /\ scheduled' = [c \in msg |-> FALSE] @@ scheduled
       \*# Send unmute message to mutor
