@@ -3,8 +3,8 @@
 EXTENDS FiniteSets, Integers, Sequences, TLC
 
 Null == 0
-Cowns == 1..2 \*# TODO: 4
-MaxMessageCount == 1 \*# TODO: 4
+Cowns == 1..3 \*# TODO: 4
+MaxMessageCount == 3 \*# TODO: 4
 MaxMessageSize == 3
 OverloadThreshold == 2
 PriorityLevels == {-1, 0, 1}
@@ -22,6 +22,11 @@ VARIABLES fuel, queue, scheduled, running, mutor, priority, blocker
 vars == <<fuel, queue, scheduled, running, mutor, priority, blocker>>
 
 Messages == UNION {Range(queue[c]): c \in Cowns}
+
+Normal(c) == priority[c] = 0
+Prioritized(c) == priority[c] = 1
+Muted(c) == priority[c] = -1
+
 EmptyQueue(c) == Len(queue[c]) = 0
 Overloaded(c) == Len(queue[c]) >= OverloadThreshold
 Enqueue(c, m) == c :> Append(queue[c], m)
@@ -32,17 +37,15 @@ Blockers(c) ==
   IF blocker[c] = Null THEN {}
   ELSE {blocker[c]} \union Blockers(blocker[c])
 
+\* TODO: apply to all blockers
+Unblock(c) == c :> (Muted(c) \/ scheduled[c])
+
 Running(c) == \E k \in Cowns: running[k] /\ c \in Head(queue[k])
 
 AcquiredBy(a, b) ==
   /\ a < b
-  /\ \E c \in Cowns: a \in UNION Range(queue[b])
-  /\ b = Min({c \in Cowns: a \in UNION Range(queue[b])})
+  /\ \E m \in Range(queue[b]): (a \in m) /\ (b \in m)
 Acquired(c) == \E k \in Cowns: AcquiredBy(c, k)
-
-Normal(c) == priority[c] = 0
-Prioritized(c) == priority[c] = 1
-Muted(c) == priority[c] = -1
 
 MutedBy(a, b) ==
   /\ Muted(a)
@@ -89,7 +92,7 @@ Acquire(cown) ==
     \*# Prioritize this cown and next if either are prioritized. Unmute next.
     /\ IF \E c \in {cown, next}: Prioritized(c) THEN
       /\ priority' = (next :> 1) @@ priority
-      /\ scheduled' = (next :> TRUE) @@ (cown :> FALSE) @@ scheduled
+      /\ scheduled' = Unblock(next) @@ (cown :> FALSE) @@ scheduled
       ELSE
       /\ UNCHANGED <<priority>>
       /\ scheduled' = (cown :> FALSE) @@ scheduled
@@ -137,7 +140,7 @@ Send(cown) ==
       \*# Prioritize next.
       /\ priority' = (next :> 1) @@ priority
       \*# Reschdeule next if it was muted.
-      /\ scheduled' = (next :> (Muted(next) \/ scheduled[next])) @@ scheduled
+      /\ scheduled' = Unblock(next) @@ scheduled
       \*# Set mutor if any receiver is overloaded and there are no receivers in the set of senders.
       /\ IF
         /\ mutors /= {}
@@ -225,13 +228,13 @@ AcquiredOnce ==
   \A a \in {c \in Cowns: Acquired(c)}:
     Cardinality({c \in Cowns: AcquiredBy(a, c)}) = 1
 
-\*# An acquired cown is acquired by a cown in its blocker set.
+\*# An acquired cown is either acquired by a cown in its blocker set or it is running.
 AcquiredByBlocker == \A <<a, b>> \in Cowns \X Cowns:
-  AcquiredBy(a, b) => b \in Blockers(a)
+  AcquiredBy(a, b) => b \in Blockers(a) \/ Running(a)
 
-\*# An overloaded cown doesn't exist in a muted cown's queue.
-OverloadedNotInMutedQueue == \A <<o, m>> \in Cowns \X Cowns:
-  Overloaded(o) /\ Muted(m) => o \notin UNION Range(queue[m])
+\*# A prioritized cown is not acquired by a muted cown.
+PrioritizedNotAcquiredByMuted == \A <<o, m>> \in Cowns \X Cowns:
+  Prioritized(o) /\ Muted(m) => ~AcquiredBy(o, m)
 
 ====
 
