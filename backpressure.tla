@@ -3,11 +3,11 @@
 EXTENDS FiniteSets, Integers, Sequences, TLC
 
 Null == 0
-Cowns == 1..3 \*# TODO: 4
-MaxMessageCount == 4 \*# TODO: 4
+Cowns == 1..2 \*# TODO: 4
+MaxMessageCount == 1 \*# TODO: 4
 MaxMessageSize == 3
 OverloadThreshold == 2
-\* PriorityLevels == {-1, 0, 1, 2}
+PriorityLevels == {-1, 0, 1}
 
 Pick(s) == CHOOSE x \in s: TRUE
 Min(s) == CHOOSE x \in s: \A y \in s \ {x}: y > x
@@ -18,8 +18,8 @@ Subsets(s, min, max) ==
 RECURSIVE Concat(_)
 Concat(s) == IF s = {} THEN <<>> ELSE LET x == Pick(s) IN x \o Concat(s \ {x})
 
-VARIABLES fuel, queue, scheduled, running, mutor, muted, blocker
-vars == <<fuel, queue, scheduled, running, mutor, muted, blocker>>
+VARIABLES fuel, queue, scheduled, running, mutor, priority, blocker
+vars == <<fuel, queue, scheduled, running, mutor, priority, blocker>>
 
 Messages == UNION {Range(queue[c]): c \in Cowns}
 EmptyQueue(c) == Len(queue[c]) = 0
@@ -40,8 +40,12 @@ AcquiredBy(a, b) ==
   /\ b = Min({c \in Cowns: a \in UNION Range(queue[b])})
 Acquired(c) == \E k \in Cowns: AcquiredBy(c, k)
 
+Normal(c) == priority[c] = 0
+Prioritized(c) == priority[c] = 1
+Muted(c) == priority[c] = -1
+
 MutedBy(a, b) ==
-  /\ muted[a]
+  /\ Muted(a)
   /\ \E m \in Range(queue[b]): (b \notin m) /\ (a \in m)
 
 Init ==
@@ -50,7 +54,7 @@ Init ==
   /\ scheduled = [c \in Cowns |-> TRUE]
   /\ running = [c \in Cowns |-> FALSE]
   /\ mutor = [c \in Cowns |-> Null]
-  /\ muted = [c \in Cowns |-> FALSE]
+  /\ priority = [c \in Cowns |-> 0]
   /\ blocker = [c \in Cowns |-> Null]
 
 Terminating ==
@@ -61,7 +65,7 @@ Terminating ==
 ExternalReceive(cown) ==
   /\ fuel > 0
   \* -----
-  /\ UNCHANGED <<scheduled, running, mutor, muted, blocker>>
+  /\ UNCHANGED <<scheduled, running, mutor, priority, blocker>>
   /\ fuel' = fuel - 1
   \*# Receive a message from an external source
   /\ \E others \in Subsets({c \in Cowns: c > cown}, 0, MaxMessageSize - 1):
@@ -82,11 +86,12 @@ Acquire(cown) ==
     IN
     /\ queue' = Enqueue(next, msg) @@ Dequeue(cown) @@ queue
     /\ blocker' = (cown :> next) @@ blocker
-    /\ IF (Overloaded(cown) \/ Overloaded(next)) /\ muted[next] THEN
+    \*# Prioritize this cown and next if either are prioritized. Unmute next.
+    /\ IF \E c \in {cown, next}: Prioritized(c) THEN
+      /\ priority' = (next :> 1) @@ priority
       /\ scheduled' = (next :> TRUE) @@ (cown :> FALSE) @@ scheduled
-      /\ muted' = (next :> FALSE) @@ muted
       ELSE
-      /\ UNCHANGED <<muted>>
+      /\ UNCHANGED <<priority>>
       /\ scheduled' = (cown :> FALSE) @@ scheduled
 
 Unmute(cown) ==
@@ -99,8 +104,9 @@ Unmute(cown) ==
   \*# Remove message from queue.
   /\ queue' = Dequeue(cown) @@ queue
   \*# Reschedule muted cowns.
-  /\ muted' = [c \in Head(queue[cown]) |-> FALSE] @@ muted
-  /\ scheduled' = [c \in Head(queue[cown]) |-> TRUE] @@ scheduled
+  /\ LET muted == {c \in Head(queue[cown]): Muted(c)} IN
+    /\ priority' = [c \in muted |-> 0] @@ priority
+    /\ scheduled' = [c \in muted |-> TRUE] @@ scheduled
 
 PreRun(cown) ==
   /\ scheduled[cown]
@@ -108,7 +114,7 @@ PreRun(cown) ==
   /\ ~EmptyQueue(cown)
   /\ cown = Max(Head(queue[cown]))
   \* -----
-  /\ UNCHANGED <<fuel, queue, scheduled, mutor, muted>>
+  /\ UNCHANGED <<fuel, queue, scheduled, mutor, priority>>
   \*# Set max cown in current message to running
   /\ running' = (cown :> TRUE) @@ running
   /\ blocker' = [c \in Head(queue[cown]) |-> Null] @@ blocker
@@ -116,10 +122,9 @@ PreRun(cown) ==
 Send(cown) ==
   /\ running[cown]
   /\ fuel > 0
-  \* -----
+  \*# -----
   /\ UNCHANGED <<running, blocker>>
   /\ fuel' = fuel - 1
-  \*# Select set of receivers
   /\ \E receivers \in Subsets(Cowns, 1, MaxMessageSize):
     LET
       next == Min(receivers)
@@ -128,13 +133,11 @@ Send(cown) ==
     IN
     \*# Place message for receivers in the first receiver's queue.
     /\ queue' = Enqueue(next, receivers) @@ queue
-    /\ IF (Overloaded(cown) \/ Overloaded(next)) /\ muted[next] THEN
-      /\ UNCHANGED <<mutor>>
-      \*# Unmute next.
-      /\ scheduled' = (next :> TRUE) @@ scheduled
-      /\ muted' = (next :> FALSE) @@ muted
-      ELSE
-      /\ UNCHANGED <<scheduled, muted>>
+    /\ IF (\E c \in receivers: Prioritized(c)) \/ Overloaded(next) THEN
+      \*# Prioritize next.
+      /\ priority' = (next :> 1) @@ priority
+      \*# Reschdeule next if it was muted.
+      /\ scheduled' = (next :> (Muted(next) \/ scheduled[next])) @@ scheduled
       \*# Set mutor if any receiver is overloaded and there are no receivers in the set of senders.
       /\ IF
         /\ mutors /= {}
@@ -142,6 +145,8 @@ Send(cown) ==
         /\ (senders \intersect receivers) = {}
         THEN mutor' = (cown :> Min(mutors)) @@ mutor
         ELSE UNCHANGED <<mutor>>
+      ELSE
+      /\ UNCHANGED <<scheduled, mutor, priority>>
 
 PostRun(cown) ==
   /\ running[cown]
@@ -152,12 +157,12 @@ PostRun(cown) ==
   /\ LET msg == Head(queue[cown]) IN
     \*# Mute if mutor is set and no running cowns are overloaded.
     /\ IF (mutor[cown] /= Null) /\ (\A c \in msg: ~Overloaded(c)) THEN
-      /\ muted' = [c \in msg |-> TRUE] @@ muted
+      /\ priority' = [c \in msg |-> -1] @@ priority
       /\ scheduled' = [c \in msg |-> FALSE] @@ scheduled
       \*# Send unmute message to mutor
       /\ queue' = Enqueue(mutor[cown], msg) @@ Dequeue(cown) @@ queue
       ELSE
-      /\ UNCHANGED <<muted>>
+      /\ UNCHANGED <<priority>>
       /\ scheduled' = [c \in msg |-> TRUE] @@ scheduled
       /\ queue' = Dequeue(cown) @@ queue
 
@@ -205,17 +210,17 @@ AcquiredImplication == \A c \in Cowns: Acquired(c) =>
   /\ ~scheduled[c]
 
 \*# A muted cown is not scheduled or running.
-MutedImplication == \A c \in Cowns: muted[c] <=>
+MutedImplication == \A c \in Cowns: Muted(c) <=>
   /\ \E k \in Cowns: MutedBy(c, k)
   /\ ~scheduled[c]
   /\ ~Running(c)
 
 \*# A muted cown exists in an unmute message in the queue of at least one mutor.
-MutedOnce ==
-  \A m \in {c \in Cowns: muted[c]}:
+MutedInUnmuteMsg ==
+  \A m \in {c \in Cowns: Muted(c)}:
     Cardinality({c \in Cowns: MutedBy(m, c)}) > 0
 
-\*# A cown may only be acqiured by one message.
+\*# A cown may be acqiured by at most one message.
 AcquiredOnce ==
   \A a \in {c \in Cowns: Acquired(c)}:
     Cardinality({c \in Cowns: AcquiredBy(a, c)}) = 1
@@ -226,7 +231,7 @@ AcquiredByBlocker == \A <<a, b>> \in Cowns \X Cowns:
 
 \*# An overloaded cown doesn't exist in a muted cown's queue.
 OverloadedNotInMutedQueue == \A <<o, m>> \in Cowns \X Cowns:
-  Overloaded(o) /\ muted[m] => o \notin UNION Range(queue[m])
+  Overloaded(o) /\ Muted(m) => o \notin UNION Range(queue[m])
 
 ====
 
