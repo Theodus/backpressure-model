@@ -125,7 +125,7 @@ PreRun(cown) ==
 Send(cown) ==
   /\ running[cown]
   /\ fuel > 0
-  \*# -----
+  \* -----
   /\ UNCHANGED <<running, blocker>>
   /\ fuel' = fuel - 1
   /\ \E receivers \in Subsets(Cowns, 1, MaxMessageSize):
@@ -173,7 +173,7 @@ PostRun(cown) ==
       /\ queue' = Dequeue(cown) @@ queue
 
 RunStep(cown) ==
-  \* \/ ExternalReceive(cown) \*# Very expensive check
+  \*# \/ ExternalReceive(cown) \*# Very expensive check
   \/ Acquire(cown)
   \/ Unmute(cown)
   \/ PreRun(cown)
