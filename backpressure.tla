@@ -202,8 +202,9 @@ UniqueAcquisition ==
   LET msgs == Concat({<<Head(queue[c])>>: c \in {k \in Cowns: running[k]}})
   IN Cardinality(Range(msgs)) = Len(msgs)
 
-\*# Each queue has at most one token message.
-LoneToken == \A c \in Cowns: Len(SelectSeq(queue[c], LAMBDA m: m = {})) <= 1
+\*# TODO: Token messages?
+\*# Each message has at least one cown.
+NoTokens == \A c \in Cowns: Len(SelectSeq(queue[c], LAMBDA m: m = {})) = 0
 
 \*# A running cown must be scheduled and be the max cown in the message at the head of its queue.
 RunningImplication == \A c \in Cowns: running[c] =>
